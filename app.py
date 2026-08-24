@@ -2,19 +2,27 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 
-from screener.analogs import comparison_points, find_analogs, load_catalog
 from screener.data import (
-    fetch_history,
     fetch_many,
     fetch_stock,
     sector_momentum,
     us_listed_universe,
     yahoo_discovery,
+)
+from screener.patterns import (
+    CUSTOM_INDEX,
+    STARTER_INDEX,
+    build_pattern_index,
+    download_histories,
+    find_pattern_matches,
+    load_pattern_index,
+    outcome_summary,
 )
 from screener.scoring import ScoreCard, price_features, score_stock
 
@@ -71,12 +79,15 @@ def cached_many(tickers: tuple[str, ...]):
     return fetch_many(tickers)
 
 
-@st.cache_data(ttl=86_400, show_spinner=False)
-def cached_analog_histories():
-    return {
-        ticker: fetch_history(ticker, "max")
-        for ticker in load_catalog()["ticker"].unique()
-    }
+@st.cache_resource(show_spinner=False)
+def cached_pattern_index(path: str, modified: float):
+    del modified  # Included in the cache key so rebuilding invalidates the index.
+    return load_pattern_index(path)
+
+
+def active_pattern_index():
+    path = CUSTOM_INDEX if CUSTOM_INDEX.exists() else STARTER_INDEX
+    return cached_pattern_index(str(path), path.stat().st_mtime)
 
 
 def money(value) -> str:
@@ -130,6 +141,79 @@ def price_chart(history: pd.DataFrame, ticker: str):
         plot_bgcolor="#07110D",
         legend=dict(orientation="h"),
         yaxis_title="Adjusted price",
+    )
+    return fig
+
+
+def match_quality(score: float) -> str:
+    if score >= 90:
+        return "Dead-on"
+    if score >= 82:
+        return "Tight"
+    if score >= 74:
+        return "Strong"
+    return "Loose"
+
+
+def pattern_overlay_chart(matches: pd.DataFrame, ticker: str):
+    fig = go.Figure()
+    days = list(range(-125, 1, 4))[:32]
+    current = matches.iloc[0]["current_path"]
+    fig.add_trace(
+        go.Scatter(
+            x=days,
+            y=current,
+            name=f"{ticker} now",
+            line={"color": "#FFFFFF", "width": 4},
+        )
+    )
+    colors = ["#38E07B", "#F2B84B", "#8B9DFF"]
+    for color, (_, match) in zip(colors, matches.head(3).iterrows(), strict=False):
+        fig.add_trace(
+            go.Scatter(
+                x=days,
+                y=match["matched_path"],
+                name=f"{match['ticker']} · {match['end_date']:%Y-%m-%d}",
+                line={"color": color, "width": 2},
+            )
+        )
+    fig.update_layout(
+        height=390,
+        template="plotly_dark",
+        paper_bgcolor="#07110D",
+        plot_bgcolor="#07110D",
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis_title="Trading days before the match date",
+        yaxis_title="Standardized price shape",
+        legend=dict(orientation="h"),
+    )
+    return fig
+
+
+def future_paths_chart(matches: pd.DataFrame):
+    fig = go.Figure()
+    days = list(range(0, 253, 8))[:32]
+    for _, match in matches.head(5).iterrows():
+        future_return = (
+            np.exp(np.asarray(match["future_path"], dtype=float)) - 1
+        ) * 100
+        fig.add_trace(
+            go.Scatter(
+                x=days,
+                y=future_return,
+                name=f"{match['ticker']} · {match['end_date']:%Y-%m-%d}",
+            )
+        )
+    fig.add_hline(y=0, line_dash="dot", line_color="#718078")
+    fig.update_layout(
+        height=390,
+        template="plotly_dark",
+        paper_bgcolor="#07110D",
+        plot_bgcolor="#07110D",
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis_title="Trading days after the historical match",
+        yaxis_title="Return after match (%)",
+        legend=dict(orientation="h"),
     )
     return fig
 
@@ -191,8 +275,13 @@ def render_score(card: ScoreCard, info: dict, history: pd.DataFrame):
     st.plotly_chart(price_chart(history, card.ticker), width="stretch")
 
 
-discover_tab, deep_tab, methodology_tab = st.tabs(
-    ["⚡ Opportunity Radar", "◎ Stock Deep Dive", "◇ Model & Limits"]
+discover_tab, deep_tab, pattern_tab, methodology_tab = st.tabs(
+    [
+        "⚡ Opportunity Radar",
+        "◎ Stock Deep Dive",
+        "⌁ Pattern Lab",
+        "◇ Model & Limits",
+    ]
 )
 
 with discover_tab:
@@ -357,56 +446,203 @@ with deep_tab:
                 f"{info.get('sector', 'Unknown sector')} / {info.get('industry', 'Unknown industry')} · Data timestamp: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M %Z')}"
             )
             render_score(card, info, history)
-            st.subheader("Historical pattern matches")
+            st.subheader("Precision historical pattern search")
             st.caption(
-                "Similarity uses price path, volatility, drawdown, low proximity, and volume regime as of each historical anchor. It does not claim the businesses are identical or use point-in-time fundamentals."
+                "The engine searches rolling six-month windows—not a hand-picked story list. It combines exact path correlation, time-warped shape, volatility/drawdown context, and volume behavior."
             )
             with st.spinner("Searching historical regimes…"):
-                analogs = find_analogs(
-                    price_features(history), cached_analog_histories()
+                pattern_index = active_pattern_index()
+                matches = find_pattern_matches(
+                    history, pattern_index, query_ticker=ticker, top_n=20
                 )
-            if analogs.empty:
-                st.info("Historical analog data is temporarily unavailable.")
+            if matches.empty:
+                st.info("The local pattern database has no usable matches yet.")
             else:
-                for analog_number, analog in enumerate(analogs.to_dict("records")):
-                    similarities, differences = comparison_points(
-                        price_features(history), analog
+                summary = outcome_summary(matches)
+                best = matches.iloc[0]
+                st.markdown(
+                    f"<div class='card'><div class='eyebrow'>Closest historical fingerprint</div>"
+                    f"<div class='score'>{best['similarity']:.0f}%</div>"
+                    f"<b>{match_quality(best['similarity'])} · {best['ticker']} ending {best['end_date']:%B %Y}</b>"
+                    f"<div class='fine'>Searched {pattern_index.size:,} windows across {pattern_index.stock_count:,} stocks</div></div>",
+                    unsafe_allow_html=True,
+                )
+                st.plotly_chart(pattern_overlay_chart(matches, ticker), width="stretch")
+
+                p1, p2, p3, p4 = st.columns(4)
+                p1.metric("Historical matches positive", pct(summary["positive_rate"]))
+                p2.metric("Reached +25% in 12m", pct(summary["plus_25_rate"]))
+                p3.metric("Fell −20% in 12m", pct(summary["minus_20_rate"]))
+                p4.metric("Median 12m outcome", pct(summary["median_12m"]))
+                st.caption(
+                    "These are similarity-weighted outcomes from the closest historical windows, not probabilities or a forecast."
+                )
+
+                display = matches.head(12)[
+                    [
+                        "ticker",
+                        "end_date",
+                        "similarity",
+                        "path_correlation",
+                        "dtw_similarity",
+                        "context_similarity",
+                        "volume_similarity",
+                        "forward_3m",
+                        "forward_6m",
+                        "forward_12m",
+                    ]
+                ].copy()
+                display.columns = [
+                    "Ticker",
+                    "Pattern ended",
+                    "Overall match",
+                    "Path correlation",
+                    "Time-warp match",
+                    "Market context",
+                    "Volume match",
+                    "Next 3m",
+                    "Next 6m",
+                    "Next 12m",
+                ]
+                for column in ["Next 3m", "Next 6m", "Next 12m"]:
+                    display[column] *= 100
+                st.dataframe(
+                    display,
+                    hide_index=True,
+                    width="stretch",
+                    column_config={
+                        "Overall match": st.column_config.ProgressColumn(
+                            min_value=0, max_value=100, format="%.1f%%"
+                        ),
+                        "Path correlation": st.column_config.NumberColumn(
+                            format="%.1f%%"
+                        ),
+                        "Time-warp match": st.column_config.NumberColumn(
+                            format="%.1f%%"
+                        ),
+                        "Market context": st.column_config.NumberColumn(
+                            format="%.1f%%"
+                        ),
+                        "Volume match": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Next 3m": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Next 6m": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Next 12m": st.column_config.NumberColumn(format="%.1f%%"),
+                    },
+                )
+                st.subheader("What happened after the five closest matches")
+                st.plotly_chart(future_paths_chart(matches), width="stretch")
+
+                with st.expander("How exact is each match score?"):
+                    st.markdown(
+                        """
+                        - **45% exact path correlation:** did the six-month chart bend and reverse in the same places?
+                        - **25% dynamic time warping:** is it the same shape if one stock moved a little faster or slower?
+                        - **20% market context:** were return, volatility, drawdown, and distance from the low comparable?
+                        - **10% volume fingerprint:** did participation expand and contract similarly?
+
+                        The engine caps clustered results from one ticker and requires non-overlapping eras. A 90%+ result is labeled “dead-on”; lower scores are shown honestly instead of being forced into a dramatic analogy.
+                        """
                     )
-                    outcome = analog.get("forward_12m")
-                    with st.expander(
-                        f"{analog['similarity']:.0f}% pattern match · {ticker} now vs. {analog['label']}",
-                        expanded=analog_number == 0,
-                    ):
-                        a, b = st.columns(2)
-                        with a:
-                            st.markdown("**Similarities**")
-                            for point in similarities or [
-                                "Broad regime match; no individual feature landed inside the strict tolerance."
-                            ]:
-                                st.write(f"• {point}")
-                            st.markdown(f"**Historical setup:** {analog['story']}")
-                        with b:
-                            st.markdown("**Differences**")
-                            for point in differences:
-                                st.write(f"• {point}")
-                            st.markdown(
-                                f"**Structural risk then:** {analog['structural_risk']}"
-                            )
-                        st.metric(
-                            "What happened over the following ~12 months",
-                            pct(outcome),
-                            help="Historical adjusted-price return, not a forecast.",
-                        )
+
+with pattern_tab:
+    st.subheader("Local pattern database")
+    current_index = active_pattern_index()
+    active_name = (
+        "Custom expanded index" if CUSTOM_INDEX.exists() else "Bundled starter index"
+    )
+    i1, i2, i3, i4 = st.columns(4)
+    i1.metric("Active database", active_name)
+    i2.metric("Historical windows", f"{current_index.size:,}")
+    i3.metric("Stocks represented", f"{current_index.stock_count:,}")
+    i4.metric("History begins", str(current_index.first_date.year))
+    st.write(
+        "Every stock contributes rolling 126-trading-day fingerprints. Monthly sampling creates many independent eras without filling the results with near-duplicate dates. Build a larger index locally when you want broader coverage."
+    )
+
+    st.subheader("Build or expand the matcher")
+    build_source = st.radio(
+        "Universe for the new local index",
+        ["Aggressive discovery", "U.S. listed sample", "Paste tickers"],
+        horizontal=True,
+        key="pattern_source",
+    )
+    build_a, build_b = st.columns([2, 1])
+    with build_a:
+        pattern_tickers = st.text_area(
+            "Tickers for pattern indexing",
+            placeholder="MU, PLTR, NVDA, RKLB, TSM, 9988.HK",
+            disabled=build_source != "Paste tickers",
+        )
+    with build_b:
+        index_size = st.slider("Stocks to index", 50, 5000, 250, 50)
+        index_period = st.selectbox("History per stock", ["10y", "max"], index=1)
+        sampling = st.selectbox(
+            "Historical window spacing",
+            ["Monthly · balanced", "Biweekly · more matches", "Quarterly · fastest"],
+        )
+    build_button = st.button("Build expanded pattern database", type="primary")
+
+    if build_button:
+        if build_source == "Aggressive discovery":
+            symbols = yahoo_discovery(min(index_size, 250))
+        elif build_source == "U.S. listed sample":
+            universe = us_listed_universe()
+            symbols = universe.sample(
+                min(index_size, len(universe)), random_state=20260824
+            )["symbol"].tolist()
+        else:
+            symbols = [
+                value.strip().upper()
+                for value in pattern_tickers.replace("\n", ",").split(",")
+                if value.strip()
+            ][:index_size]
+        if not symbols:
+            st.error("Add at least one valid equity ticker.")
+        else:
+            progress_bar = st.progress(0, text="Downloading adjusted price histories…")
+
+            def update_pattern_progress(done: int, total: int):
+                progress_bar.progress(
+                    done / total, text=f"Downloaded {done:,} of {total:,} tickers"
+                )
+
+            histories = download_histories(
+                symbols, period=index_period, progress=update_pattern_progress
+            )
+            spacing = {
+                "Monthly · balanced": 21,
+                "Biweekly · more matches": 10,
+                "Quarterly · fastest": 63,
+            }[sampling]
+            if histories:
+                with st.spinner("Encoding millions of comparable shape features…"):
+                    built_index = build_pattern_index(
+                        histories, CUSTOM_INDEX, step=spacing
+                    )
+                cached_pattern_index.clear()
+                progress_bar.progress(1.0, text="Pattern database ready")
+                st.success(
+                    f"Built {built_index.size:,} historical windows from {built_index.stock_count:,} stocks. Re-run a deep dive to use it."
+                )
+            else:
+                st.error(
+                    "No usable histories were downloaded. Try a smaller universe or retry later."
+                )
+
+    if CUSTOM_INDEX.exists():
+        st.caption(
+            f"Custom index saved locally at `{CUSTOM_INDEX}`. Delete that file to fall back to the bundled starter index."
+        )
 
 with methodology_tab:
     st.subheader("What the score actually rewards")
     st.markdown("""
-    - **30% Growth engine:** revenue, earnings, and quarterly earnings growth.
-    - **22% Buy-low setup:** closeness to the 52-week low, with stabilization and volume confirmation.
-    - **18% Alive-business check:** margins, liquidity, leverage, and free cash flow.
-    - **15% Momentum ignition:** one-, three-, six-, and twelve-month price behavior.
+    - **28% Growth engine:** revenue, earnings, and quarterly earnings growth.
+    - **30% Buy-low setup:** closeness to the 52-week low, with stabilization and volume confirmation.
+    - **17% Alive-business check:** margins, liquidity, leverage, and free cash flow.
+    - **10% Momentum ignition:** early price acceleration, without rewarding a fully chased move.
     - **15% Sector opportunity:** sector ETF momentum plus company growth relative to the sector regime.
-    - **Up to −25 points in penalties:** shrinking revenue, cash burn with negative margins, extreme leverage, nano-cap risk, and unresolved falling-knife behavior.
+    - **Up to −45 points in penalties:** includes a hard buy-high tax beginning 35% above the 52-week low, plus shrinking revenue, cash burn, leverage, nano-cap, and falling-knife risks.
 
     Dividends receive **zero positive weight**. An unusually high yield can be a small distress/maturity penalty. A low price alone is never enough: the business must show signs of life.
     """)
@@ -417,6 +653,10 @@ with methodology_tab:
     st.subheader("Coverage and data limits")
     st.write(
         "The deep dive accepts global Yahoo Finance equity symbols. Discovery combines several stock-only Yahoo screens; the U.S. mode uses Nasdaq Trader’s official Nasdaq/NYSE/NYSE American/Arca/BATS/IEX directory. Global exchanges use suffixes such as `.HK`, `.L`, or `.AS`. Free data can be delayed, missing, restated, or rate-limited."
+    )
+    st.subheader("Pattern matching limits")
+    st.write(
+        "Pattern matches are empirical chart analogs, not claims that two companies share the same fundamentals. Expanding the local database improves coverage, but even a dead-on historical shape can resolve differently because news, valuation, dilution, interest rates, and the underlying business are different."
     )
 
 st.divider()

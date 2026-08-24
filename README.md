@@ -13,9 +13,11 @@ A local-first Streamlit stock screener for aggressive investors. It ranks equiti
 - Can sample the official Nasdaq Trader directory covering Nasdaq and other U.S. exchanges.
 - Accepts pasted tickers or a CSV universe for repeatable batch research.
 - Rewards growth, 52-week-low proximity with stabilization, momentum ignition, and sector strength.
-- Penalizes shrinking revenue, cash burn plus negative margins, extreme leverage, nano-cap risk, and falling knives.
+- Penalizes stocks that have run too far above their 52-week low, plus shrinking revenue, cash burn, leverage, nano-cap risk, and falling knives.
 - Produces bull/base/bear scenario weights, pros and cons, a component breakdown, and downloadable results.
-- Compares the current price regime with historical episodes such as NVIDIA 2015, AMD 2016, McDonald's 1994, and Amazon 2001.
+- Searches a rolling local pattern index using exact path correlation, dynamic time warping, market context, and volume fingerprints.
+- Shows what happened 3, 6, and 12 months after each match and can expand the database to as many as 5,000 equities.
+- Ships with 64,353 historical windows from 408 stocks so pattern search works immediately without a long first-time build.
 
 ## Run locally
 
@@ -56,19 +58,19 @@ GitHub Actions runs the tests and linter automatically on each push and pull req
 
 | Component | Weight | Intent |
 |---|---:|---|
-| Growth engine | 30% | Revenue and earnings expansion |
-| Buy-low setup | 22% | Near a 52-week low, but stabilizing |
-| Alive-business check | 18% | Margins, liquidity, leverage, and cash generation |
-| Momentum ignition | 15% | Early price acceleration rather than mature yield |
+| Growth engine | 28% | Revenue and earnings expansion |
+| Buy-low setup | 30% | Near a 52-week low, but stabilizing |
+| Alive-business check | 17% | Margins, liquidity, leverage, and cash generation |
+| Momentum ignition | 10% | Early acceleration rather than a chased move |
 | Sector opportunity | 15% | Hot sectors or company growth emerging from a depressed regime |
 
-Risk penalties can subtract up to 25 points. See [`screener/scoring.py`](screener/scoring.py) for the complete, editable formula.
+Risk penalties can subtract up to 45 points. The buy-high tax begins 35% above the 52-week low and becomes severe beyond 75%, 120%, and 200%. See [`screener/scoring.py`](screener/scoring.py) for the complete, editable formula.
 
 ## Important limitations
 
 - Yahoo Finance is a convenient free source, not an exchange-grade feed. Data can be delayed, unavailable, or rate-limited.
 - A free endpoint cannot responsibly fetch complete fundamentals for every global listing in one instant. The app therefore analyzes any ticker but ranks configurable candidate pools.
-- Historical analogs compare price/regime features. They do not imply business equivalence, and historical outcomes are not forecasts.
+- Historical matches compare chart and trading-regime features. They do not imply business equivalence, and historical outcomes are not forecasts.
 - Fundamentals returned today are not point-in-time values for historical analog dates.
 - Before investing, independently verify filings, dilution, debt maturities, liquidity, management claims, catalysts, and loss tolerance.
 

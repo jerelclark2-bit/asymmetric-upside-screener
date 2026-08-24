@@ -166,7 +166,7 @@ def score_stock(
         "Sector opportunity": round(sector, 1),
     }
     total = (
-        0.30 * growth + 0.18 * survival + 0.22 * setup + 0.15 * momentum + 0.15 * sector
+        0.28 * growth + 0.17 * survival + 0.30 * setup + 0.10 * momentum + 0.15 * sector
     )
 
     flags: list[str] = []
@@ -186,6 +186,26 @@ def score_stock(
     if market_cap and market_cap < 75_000_000:
         penalty += 5
         flags.append("Nano-cap liquidity/manipulation risk")
+    # This is explicitly a buy-low strategy. Growth cannot fully erase the
+    # risk of entering after a stock has already made a huge move.
+    if dlow > 2.0:
+        penalty += 35
+        flags.append("Buy-high tax: more than 200% above the 52-week low")
+    elif dlow > 1.20:
+        penalty += 28
+        flags.append("Buy-high tax: more than 120% above the 52-week low")
+    elif dlow > 0.75:
+        penalty += 22
+        flags.append("Buy-high tax: more than 75% above the 52-week low")
+    elif dlow > 0.45:
+        penalty += 18
+        flags.append("Buy-high tax: more than 45% above the 52-week low")
+    elif dlow > 0.35:
+        penalty += 8
+        flags.append("Buy-high tax: more than 35% above the 52-week low")
+    if price.get("drawdown_from_52w_high", -1.0) > -0.05 and dlow > 0.50:
+        penalty += 7
+        flags.append("Chasing risk: within 5% of the 52-week high")
     # yfinance's `dividendYield` is often expressed in percentage points
     # (0.47 means 0.47%), while the trailing field is a decimal ratio.
     trailing_yield = metrics.get("trailingAnnualDividendYield")
@@ -197,7 +217,7 @@ def score_stock(
     if dividend_yield > 0.06:
         penalty += 3
         flags.append("High yield may signal a mature or distressed setup")
-    total = round(clamp(total - min(penalty, 25)), 1)
+    total = round(clamp(total - min(penalty, 45)), 1)
 
     pros: list[str] = []
     cons: list[str] = []
@@ -209,8 +229,10 @@ def score_stock(
         cons.append(f"Revenue growth is {revenue_growth:.0%}")
     if dlow <= 0.20:
         pros.append(f"Only {dlow:.0%} above its 52-week low")
-    elif dlow > 1.0:
-        cons.append(f"Already {dlow:.0%} above its 52-week low")
+    elif dlow > 0.45:
+        cons.append(
+            f"Already {dlow:.0%} above its 52-week low—buy-high penalty applied"
+        )
     if r3 > 0.12:
         pros.append(f"Three-month momentum has ignited (+{r3:.0%})")
     elif r3 < -0.15:
