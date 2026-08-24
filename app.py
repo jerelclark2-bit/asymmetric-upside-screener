@@ -80,14 +80,14 @@ def cached_many(tickers: tuple[str, ...]):
 
 
 @st.cache_resource(show_spinner=False)
-def cached_pattern_index(path: str, modified: float):
-    del modified  # Included in the cache key so rebuilding invalidates the index.
-    return load_pattern_index(path)
+def cached_pattern_index(starter_modified: float, custom_modified: float):
+    del starter_modified, custom_modified  # Modification times form the cache key.
+    return load_pattern_index()
 
 
 def active_pattern_index():
-    path = CUSTOM_INDEX if CUSTOM_INDEX.exists() else STARTER_INDEX
-    return cached_pattern_index(str(path), path.stat().st_mtime)
+    custom_modified = CUSTOM_INDEX.stat().st_mtime if CUSTOM_INDEX.exists() else 0.0
+    return cached_pattern_index(STARTER_INDEX.stat().st_mtime, custom_modified)
 
 
 def money(value) -> str:
@@ -548,7 +548,7 @@ with pattern_tab:
     st.subheader("Local pattern database")
     current_index = active_pattern_index()
     active_name = (
-        "Custom expanded index" if CUSTOM_INDEX.exists() else "Bundled starter index"
+        "Bundled + custom index" if CUSTOM_INDEX.exists() else "Bundled starter index"
     )
     i1, i2, i3, i4 = st.columns(4)
     i1.metric("Active database", active_name)

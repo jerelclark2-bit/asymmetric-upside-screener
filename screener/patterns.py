@@ -195,11 +195,15 @@ def save_pattern_index(index: PatternIndex, output_path: str | Path) -> None:
 
 
 def load_pattern_index(path: str | Path | None = None) -> PatternIndex:
-    selected = (
-        Path(path)
-        if path
-        else (CUSTOM_INDEX if CUSTOM_INDEX.exists() else STARTER_INDEX)
-    )
+    if path:
+        return _load_pattern_index_file(Path(path))
+    starter = _load_pattern_index_file(STARTER_INDEX)
+    if CUSTOM_INDEX.exists():
+        return merge_pattern_indexes(starter, _load_pattern_index_file(CUSTOM_INDEX))
+    return starter
+
+
+def _load_pattern_index_file(selected: Path) -> PatternIndex:
     with np.load(selected, allow_pickle=False) as data:
         return PatternIndex(
             tickers=data["tickers"],
@@ -210,6 +214,21 @@ def load_pattern_index(path: str | Path | None = None) -> PatternIndex:
             outcomes=data["outcomes"],
             future_paths=data["future_paths"],
         )
+
+
+def merge_pattern_indexes(*indexes: PatternIndex) -> PatternIndex:
+    available = [index for index in indexes if index.size]
+    if not available:
+        raise ValueError("At least one non-empty pattern index is required")
+    return PatternIndex(
+        tickers=np.concatenate([index.tickers for index in available]),
+        end_dates=np.concatenate([index.end_dates for index in available]),
+        paths=np.vstack([index.paths for index in available]),
+        volumes=np.vstack([index.volumes for index in available]),
+        contexts=np.vstack([index.contexts for index in available]),
+        outcomes=np.vstack([index.outcomes for index in available]),
+        future_paths=np.vstack([index.future_paths for index in available]),
+    )
 
 
 def _dtw_similarity(left: np.ndarray, right: np.ndarray) -> float:
@@ -255,18 +274,12 @@ def find_pattern_matches(
         0.65 * correlation_scores + 0.25 * context_scores + 0.10 * volume_scores
     )
 
-    # Keep current or near-current windows out of the answer, especially for the query stock.
-    cutoff = (
-        (frame.index[-1] - pd.DateOffset(years=2))
-        .to_datetime64()
-        .astype("datetime64[D]")
-        .astype(int)
-    )
+    # A cross-stock analogy must never compare the company with its own past.
+    # Same-ticker history can be useful for cycle research, but it is misleading
+    # in a feature presented as "what other stock looked like this?"
     valid = np.ones(index.size, dtype=bool)
     if query_ticker:
-        valid &= ~(
-            (index.tickers == query_ticker.upper()) & (index.end_dates >= cutoff)
-        )
+        valid &= index.tickers != query_ticker.upper()
     preliminary[~valid] = -np.inf
     pool_size = min(candidate_count, int(valid.sum()))
     if pool_size <= 0:

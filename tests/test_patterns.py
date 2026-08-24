@@ -6,6 +6,7 @@ from screener.patterns import (
     encode_pattern,
     find_pattern_matches,
     load_pattern_index,
+    merge_pattern_indexes,
 )
 
 
@@ -37,8 +38,28 @@ def test_index_roundtrip_and_search(tmp_path):
     loaded = load_pattern_index(path)
     matches = find_pattern_matches(histories["AAA"], loaded, "AAA", top_n=5)
     assert built.size == loaded.size
-    assert (
-        len(matches) == 4
-    )  # Results are capped at two non-overlapping eras per stock.
+    assert len(matches) == 2  # The query ticker is excluded; two eras remain for BBB.
+    assert "AAA" not in matches["ticker"].tolist()
     assert matches["similarity"].is_monotonic_decreasing
     assert {"forward_3m", "forward_6m", "forward_12m"}.issubset(matches.columns)
+
+
+def test_custom_index_extends_starter_without_same_ticker_matches(tmp_path):
+    starter = build_pattern_index(
+        {"AAA": synthetic_history(2), "BBB": synthetic_history(3)},
+        tmp_path / "starter.npz",
+        step=21,
+        min_dollar_volume=0,
+    )
+    custom = build_pattern_index(
+        {"AAA": synthetic_history(4)},
+        tmp_path / "custom.npz",
+        step=21,
+        min_dollar_volume=0,
+    )
+    combined = merge_pattern_indexes(starter, custom)
+    matches = find_pattern_matches(
+        synthetic_history(2), combined, query_ticker="AAA", top_n=10
+    )
+    assert not matches.empty
+    assert set(matches["ticker"]) == {"BBB"}
