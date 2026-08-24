@@ -27,7 +27,7 @@ Python 3.11 or newer is recommended. It has also been tested locally on Python 3
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-streamlit run app.py
+streamlit run app.py --server.address 127.0.0.1
 ```
 
 On macOS/Linux, the included one-command launcher performs those steps for you:
@@ -37,6 +37,8 @@ On macOS/Linux, the included one-command launcher performs those steps for you:
 ```
 
 Then open the local address printed by Streamlit, normally `http://localhost:8501`.
+
+The launcher binds to `127.0.0.1`, so the development server is available only on your computer rather than the local network.
 
 No API key is required. Copy `.env.example` to `.env` only if you want to provide a descriptive user agent for official data downloads.
 

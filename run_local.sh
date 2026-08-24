@@ -9,5 +9,4 @@ if [[ ! -d .venv ]]; then
 fi
 
 .venv/bin/python -m pip install -r requirements.txt
-exec .venv/bin/streamlit run app.py
-
+exec .venv/bin/streamlit run app.py --server.address 127.0.0.1
