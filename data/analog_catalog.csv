@@ -1,0 +1,10 @@
+ticker,anchor_date,label,sector,story,structural_risk
+NVDA,2015-08-03,NVIDIA 2015,Semiconductors,"GPU acceleration was expanding beyond gaming before the AI boom became consensus.","A cyclical semiconductor downturn or failed platform adoption could have broken the thesis."
+AMD,2016-07-01,AMD 2016,Semiconductors,"A credible product roadmap and leadership reset created a turnaround with large share-gain potential.","The company still faced heavy debt, losses, and dominant incumbents."
+TSLA,2019-06-03,Tesla 2019,Automotive,"Demand skepticism and production strain masked a potentially scalable platform.","Funding, execution, competition, and valuation risks were extreme."
+NFLX,2009-03-02,Netflix 2009,Media,"A legacy delivery model was beginning to convert into a scalable streaming platform.","Content costs and incumbent responses threatened the transition."
+MCD,1994-04-04,McDonald's 1994,Restaurants,"A mature brand still had international expansion and operating leverage available.","This was a steadier compounder, not a technology-style hypergrowth setup."
+AAPL,2004-04-01,Apple 2004,Consumer Technology,"A successful device ecosystem was forming before its largest category expansion.","The company remained exposed to hit-driven hardware cycles."
+AMZN,2001-09-24,Amazon 2001,E-commerce,"A battered category leader had infrastructure and customer scale after a sector collapse.","Cash burn and post-bubble financing risk made survival uncertain."
+ENPH,2018-04-02,Enphase 2018,Clean Energy,"A product transition and improving economics created turnaround operating leverage.","Customer concentration and policy-sensitive demand remained major risks."
+

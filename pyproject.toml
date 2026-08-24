@@ -1,0 +1,16 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "S"]
+ignore = [
+  "BLE001", # Data-provider libraries raise heterogeneous exceptions at network boundaries.
+  "C408",   # Plotly examples are clearer with dict(...) keyword arguments.
+  "E501",   # Streamlit copy and embedded CSS are intentionally kept readable in context.
+  "S101",   # Pytest uses assert statements by design.
+  "S112",   # A failed ticker/screener is intentionally skipped so a batch can continue.
+]
