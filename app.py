@@ -178,14 +178,24 @@ def pattern_overlay_chart(matches: pd.DataFrame, ticker: str):
             )
         )
     fig.update_layout(
-        height=390,
+        height=450,
         template="plotly_dark",
         paper_bgcolor="#07110D",
         plot_bgcolor="#07110D",
-        margin=dict(l=10, r=10, t=30, b=10),
+        margin=dict(l=20, r=20, t=105, b=70),
         xaxis_title="Trading days before the match date",
         yaxis_title="Standardized price shape",
-        legend=dict(orientation="h"),
+        legend=dict(
+            orientation="h",
+            x=0,
+            xanchor="left",
+            y=1.08,
+            yanchor="bottom",
+            font=dict(size=11),
+            bgcolor="rgba(7,17,13,0.92)",
+        ),
+        xaxis=dict(title_standoff=22, automargin=True),
+        yaxis=dict(title_standoff=14, automargin=True),
     )
     return fig
 
@@ -206,14 +216,24 @@ def future_paths_chart(matches: pd.DataFrame):
         )
     fig.add_hline(y=0, line_dash="dot", line_color="#718078")
     fig.update_layout(
-        height=390,
+        height=475,
         template="plotly_dark",
         paper_bgcolor="#07110D",
         plot_bgcolor="#07110D",
-        margin=dict(l=10, r=10, t=30, b=10),
+        margin=dict(l=20, r=20, t=125, b=75),
         xaxis_title="Trading days after the historical match",
         yaxis_title="Return after match (%)",
-        legend=dict(orientation="h"),
+        legend=dict(
+            orientation="h",
+            x=0,
+            xanchor="left",
+            y=1.10,
+            yanchor="bottom",
+            font=dict(size=11),
+            bgcolor="rgba(7,17,13,0.92)",
+        ),
+        xaxis=dict(title_standoff=24, automargin=True),
+        yaxis=dict(title_standoff=14, automargin=True),
     )
     return fig
 
